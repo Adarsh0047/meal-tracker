@@ -256,6 +256,36 @@
                 padding: 15px;
             }
         }
+
+        .history-item {
+            background: var(--bg-color);
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            margin-bottom: 10px;
+        }
+        .history-item:last-child {
+            margin-bottom: 0;
+        }
+        .history-month {
+            font-weight: bold;
+            color: var(--primary-color);
+            margin-bottom: 5px;
+            font-size: 1.05rem;
+            text-transform: capitalize;
+        }
+        .history-details {
+            display: flex;
+            justify-content: space-between;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+        }
+        .history-total {
+            font-weight: bold;
+            color: var(--text-main);
+            text-align: right;
+            margin-top: 5px;
+        }
     </style>
 </head>
 <body>
@@ -312,6 +342,13 @@
                 <div class="calc-result" style="margin-top: 10px;">
                     <span>Total Cost:</span>
                     <strong id="calc-total-cost">₹0.00</strong>
+                </div>
+            </div>
+
+            <div class="sidebar-card">
+                <h3>📜 All Months History</h3>
+                <div id="history-list" style="max-height: 300px; overflow-y: auto;">
+                    <!-- history items injected here -->
                 </div>
             </div>
         </div>
@@ -513,6 +550,58 @@
             document.getElementById('dinner-cost').value = data.dinner || '';
             
             calculateCost();
+            renderHistory();
+        }
+
+        // Render the history of all months
+        function renderHistory() {
+            const historyListEl = document.getElementById('history-list');
+            if (!historyListEl) return;
+            historyListEl.innerHTML = '';
+
+            const allMonths = new Set();
+            Object.keys(mealData).forEach(date => allMonths.add(date.substring(0, 7)));
+            Object.keys(costData).forEach(month => allMonths.add(month));
+
+            const sortedMonths = Array.from(allMonths).sort().reverse();
+
+            if (sortedMonths.length === 0) {
+                historyListEl.innerHTML = '<div style="color: var(--text-muted); text-align: center;">No history yet.</div>';
+                return;
+            }
+
+            sortedMonths.forEach(month => {
+                let bCount = 0, lCount = 0, dCount = 0;
+                Object.keys(mealData).forEach(date => {
+                    if (date.startsWith(month)) {
+                        if (mealData[date].breakfast) bCount++;
+                        if (mealData[date].lunch) lCount++;
+                        if (mealData[date].dinner) dCount++;
+                    }
+                });
+
+                const cData = costData[month] || { breakfast: 0, lunch: 0, dinner: 0 };
+                const bCost = cData.breakfast || 0;
+                const lCost = cData.lunch || 0;
+                const dCost = cData.dinner || 0;
+
+                const total = (bCount * bCost) + (lCount * lCost) + (dCount * dCost);
+
+                const [y, m] = month.split('-');
+                const dateObj = new Date(parseInt(y), parseInt(m) - 1, 1);
+                const monthLabel = dateObj.toLocaleDateString('default', { month: 'long', year: 'numeric' });
+
+                const item = document.createElement('div');
+                item.className = 'history-item';
+                item.innerHTML = `
+                    <div class="history-month">${monthLabel}</div>
+                    <div class="history-details">
+                        <span>🥞 ${bCount} | 🍲 ${lCount} | 🍽️ ${dCount}</span>
+                    </div>
+                    <div class="history-total">₹${total.toFixed(2)}</div>
+                `;
+                historyListEl.appendChild(item);
+            });
         }
 
         // Calculate the cost based on number of meals
