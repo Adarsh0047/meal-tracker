@@ -29,7 +29,109 @@
             padding: 20px;
         }
 
-        .container { max-width: 800px; margin: 0 auto; }
+        .layout-container {
+            display: flex;
+            gap: 20px;
+            max-width: 1100px;
+            margin: 0 auto;
+            align-items: flex-start;
+        }
+
+        .main-content {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .sidebar {
+            width: 320px;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        @media (max-width: 850px) {
+            .layout-container {
+                flex-direction: column;
+            }
+            .sidebar {
+                width: 100%;
+            }
+        }
+
+        .sidebar-card {
+            background-color: var(--card-bg);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        }
+
+        .sidebar-card h3 {
+            margin-top: 0;
+            color: var(--primary-color);
+            border-bottom: 2px solid var(--bg-color);
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--bg-color);
+            font-size: 1.1rem;
+        }
+
+        .stat-row:last-child {
+            border-bottom: none;
+        }
+
+        .stat-row strong {
+            color: var(--primary-color);
+            font-size: 1.2rem;
+        }
+
+        .calc-input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+
+        .calc-input-group label {
+            font-weight: bold;
+            color: var(--text-main);
+        }
+
+        .calc-input-group input {
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 1rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .calc-input-group input:focus {
+            border-color: var(--primary-color);
+        }
+
+        .calc-result {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: var(--bg-color);
+            padding: 15px;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 1.1rem;
+        }
+
+        .calc-result strong {
+            color: var(--primary-color);
+            font-size: 1.3rem;
+        }
         
         header { text-align: center; margin-bottom: 20px; }
         h1 { color: var(--primary-color); margin-bottom: 5px; }
@@ -131,27 +233,52 @@
 </head>
 <body>
 
-    <div class="container">
-        <header>
-            <h1>🍱 Monthly Meal Calendar</h1>
-            <p class="subtitle">Live sync across mobile & laptop</p>
-        </header>
+    <header>
+        <h1>🍱 Monthly Meal Calendar</h1>
+        <p class="subtitle">Live sync across mobile & laptop</p>
+    </header>
 
-        <div id="loading">Connecting to database...</div>
+    <div class="layout-container">
+        <div class="main-content">
+            <div id="loading">Connecting to database...</div>
 
-        <div id="app-content">
-            <!-- Calendar Navigation -->
-            <div class="calendar-nav">
-                <button onclick="changeMonth(-1)">&larr;</button>
-                <div style="text-align: center;">
-                    <h2 class="month-title" id="month-label">Month Year</h2>
-                    <button class="btn-today" style="margin-top: 8px;" onclick="jumpToToday()">Go to Today</button>
+            <div id="app-content">
+                <!-- Calendar Navigation -->
+                <div class="calendar-nav">
+                    <button onclick="changeMonth(-1)">&larr;</button>
+                    <div style="text-align: center;">
+                        <h2 class="month-title" id="month-label">Month Year</h2>
+                        <button class="btn-today" style="margin-top: 8px;" onclick="jumpToToday()">Go to Today</button>
+                    </div>
+                    <button onclick="changeMonth(1)">&rarr;</button>
                 </div>
-                <button onclick="changeMonth(1)">&rarr;</button>
+
+                <!-- Dynamic Days Go Here -->
+                <div id="meal-list" class="meal-list"></div>
+            </div>
+        </div>
+
+        <div class="sidebar" id="sidebar" style="display: none;">
+            <div class="sidebar-card">
+                <h3>📊 <span id="summary-month-name">Month</span> Summary</h3>
+                <div class="summary-stats">
+                    <div class="stat-row"><span>🥞 Breakfasts:</span> <strong id="sum-breakfast">0</strong></div>
+                    <div class="stat-row"><span>🍲 Lunches:</span> <strong id="sum-lunch">0</strong></div>
+                    <div class="stat-row"><span>🍽️ Dinners:</span> <strong id="sum-dinner">0</strong></div>
+                </div>
             </div>
 
-            <!-- Dynamic Days Go Here -->
-            <div id="meal-list" class="meal-list"></div>
+            <div class="sidebar-card">
+                <h3>💰 Cost Calculator</h3>
+                <div class="calc-input-group">
+                    <label for="breakfast-cost">Cost per Breakfast ($):</label>
+                    <input type="number" id="breakfast-cost" placeholder="e.g. 5" oninput="calculateCost()" min="0" step="0.01">
+                </div>
+                <div class="calc-result">
+                    <span>Total Breakfast Cost:</span>
+                    <strong id="calc-total-cost">$0.00</strong>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -272,6 +399,8 @@
                 `;
                 mealListEl.appendChild(card);
             }
+
+            calculateSummary();
         }
 
         // Change the displayed month
@@ -289,6 +418,42 @@
             
             renderCalendar();
             window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        // Calculate the summary for the currently displayed month
+        function calculateSummary() {
+            let bCount = 0;
+            let lCount = 0;
+            let dCount = 0;
+
+            const daysInMonth = new Date(displayYear, displayMonth + 1, 0).getDate();
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dateStr = getStorageDateString(displayYear, displayMonth, day);
+                const dayData = mealData[dateStr];
+                if (dayData) {
+                    if (dayData.breakfast) bCount++;
+                    if (dayData.lunch) lCount++;
+                    if (dayData.dinner) dCount++;
+                }
+            }
+
+            document.getElementById('sum-breakfast').innerText = bCount;
+            document.getElementById('sum-lunch').innerText = lCount;
+            document.getElementById('sum-dinner').innerText = dCount;
+            
+            const monthDateObj = new Date(displayYear, displayMonth, 1);
+            document.getElementById('summary-month-name').innerText = monthDateObj.toLocaleDateString('default', { month: 'long', year: 'numeric' });
+
+            calculateCost();
+        }
+
+        // Calculate the cost based on number of breakfasts
+        function calculateCost() {
+            const bCount = parseInt(document.getElementById('sum-breakfast').innerText) || 0;
+            const bCost = parseFloat(document.getElementById('breakfast-cost').value) || 0;
+            
+            const total = bCount * bCost;
+            document.getElementById('calc-total-cost').innerText = '$' + total.toFixed(2);
         }
 
         // Return to the current real-world month and scroll to today
@@ -317,6 +482,7 @@
                 // First time load
                 loadingEl.style.display = 'none';
                 appContentEl.style.display = 'block';
+                document.getElementById('sidebar').style.display = 'flex';
                 jumpToToday(); // Will render and scroll
                 isRendered = true;
             } else {
@@ -327,6 +493,7 @@
                         if (checkbox) checkbox.checked = meals[type] === true;
                     });
                 }
+                calculateSummary();
             }
         });
 
