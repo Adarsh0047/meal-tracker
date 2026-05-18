@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dynamic Meal Calendar</title>
+    
+    <!-- Firebase SDK (V8 Compat) -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-analytics.js"></script>
+
+    <style>
+        :root {
+            --primary-color: #4CAF50;
+            --primary-hover: #45a049;
+            --bg-color: #f4f7f6;
+            --card-bg: #ffffff;
+            --text-main: #333333;
+            --text-muted: #777777;
+            --border-color: #e0e0e0;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container { max-width: 800px; margin: 0 auto; }
+        
+        header { text-align: center; margin-bottom: 20px; }
+        h1 { color: var(--primary-color); margin-bottom: 5px; }
+        p.subtitle { color: var(--text-muted); margin-top: 0; margin-bottom: 20px; }
+        
+        /* Month Navigation Bar */
+        .calendar-nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--card-bg);
+            padding: 15px 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            margin-bottom: 20px;
+        }
+
+        .calendar-nav button {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 1.2rem;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+
+        .calendar-nav button:hover { background-color: var(--primary-hover); }
+        
+        .month-title {
+            font-size: 1.4rem;
+            font-weight: bold;
+            margin: 0;
+            color: var(--text-main);
+        }
+
+        .btn-today {
+            background-color: #fff !important;
+            color: var(--primary-color) !important;
+            border: 2px solid var(--primary-color) !important;
+            font-size: 0.9rem !important;
+            padding: 8px 15px !important;
+        }
+
+        #loading { text-align: center; font-weight: bold; color: var(--primary-color); margin: 30px 0; }
+
+        /* Responsive Grid for Days */
+        .meal-list { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 15px; 
+        }
+
+        .day-card {
+            background-color: var(--card-bg);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            border: 2px solid transparent;
+        }
+
+        .day-card.today {
+            border-color: var(--primary-color);
+            position: relative;
+        }
+
+        .today-badge {
+            position: absolute; top: -12px; right: 15px;
+            background-color: var(--primary-color); color: white;
+            padding: 4px 10px; border-radius: 20px; font-size: 0.8rem; font-weight: bold;
+        }
+
+        .date-header {
+            font-size: 1.1rem; font-weight: bold; margin-bottom: 15px;
+            padding-bottom: 10px; border-bottom: 1px solid var(--border-color);
+            display: flex; justify-content: space-between; align-items: center;
+        }
+
+        .date-number {
+            font-size: 1.5rem;
+            color: var(--primary-color);
+        }
+
+        .meals-container { display: flex; flex-direction: column; gap: 12px; }
+        
+        .meal-option { 
+            display: flex; align-items: center; gap: 12px; 
+            cursor: pointer; user-select: none; 
+            background: var(--bg-color); padding: 10px; border-radius: 8px;
+        }
+        
+        input[type="checkbox"] { width: 22px; height: 22px; cursor: pointer; accent-color: var(--primary-color); }
+
+        /* Hide elements before load */
+        #app-content { display: none; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <header>
+            <h1>🍱 Monthly Meal Calendar</h1>
+            <p class="subtitle">Live sync across mobile & laptop</p>
+        </header>
+
+        <div id="loading">Connecting to database...</div>
+
+        <div id="app-content">
+            <!-- Calendar Navigation -->
+            <div class="calendar-nav">
+                <button onclick="changeMonth(-1)">&larr;</button>
+                <div style="text-align: center;">
+                    <h2 class="month-title" id="month-label">Month Year</h2>
+                    <button class="btn-today" style="margin-top: 8px;" onclick="jumpToToday()">Go to Today</button>
+                </div>
+                <button onclick="changeMonth(1)">&rarr;</button>
+            </div>
+
+            <!-- Dynamic Days Go Here -->
+            <div id="meal-list" class="meal-list"></div>
+        </div>
+    </div>
+
+    <!-- Notice there is NO type="module" here! -->
+    <script>
+        // Your web app's Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyAIgKKkqEVg5JLTQfsbSogpOOFXupGd61M",
+            authDomain: "meal-tracker-62f05.firebaseapp.com",
+            projectId: "meal-tracker-62f05",
+            storageBucket: "meal-tracker-62f05.firebasestorage.app",
+            messagingSenderId: "329752809344",
+            appId: "1:329752809344:web:43b4291428877fe852fb65",
+            measurementId: "G-GBN0BCE45J"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        firebase.analytics();
+        const db = firebase.firestore();
+        
+        const DOCUMENT_ID = "my_secret_meal_data_9876"; 
+        
+        // App State
+        let mealData = {};
+        let isRendered = false;
+        
+        // Time & Calendar Variables
+        const realToday = new Date(); 
+        let displayYear = realToday.getFullYear();
+        let displayMonth = realToday.getMonth(); // 0-indexed (0 = Jan, 11 = Dec)
+
+        // DOM Elements
+        const mealListEl = document.getElementById('meal-list');
+        const loadingEl = document.getElementById('loading');
+        const appContentEl = document.getElementById('app-content');
+        const monthLabelEl = document.getElementById('month-label');
+
+        // Helper: Get strictly formatted YYYY-MM-DD
+        function getStorageDateString(year, month, day) {
+            const y = year;
+            const m = String(month + 1).padStart(2, '0');
+            const d = String(day).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        }
+
+        // Helper: Get actual real-world today string
+        function getRealTodayString() {
+            return getStorageDateString(realToday.getFullYear(), realToday.getMonth(), realToday.getDate());
+        }
+
+        // Update Database when a checkbox is clicked
+        function updateMeal(dateStr, mealType, isChecked) {
+            if (!mealData[dateStr]) {
+                mealData[dateStr] = { breakfast: false, lunch: false, dinner: false };
+            }
+            mealData[dateStr][mealType] = isChecked;
+
+            // Push to Firebase instantly
+            db.collection("trackers").doc(DOCUMENT_ID).set({
+                [dateStr]: mealData[dateStr]
+            }, { merge: true }).catch(error => console.error("Error saving: ", error));
+        }
+
+        // Build the Calendar UI for the currently selected month
+        function renderCalendar() {
+            mealListEl.innerHTML = '';
+            
+            // 1. Determine how many days are in the selected month
+            // The 0th day of the NEXT month gives the LAST day of the CURRENT month.
+            const daysInMonth = new Date(displayYear, displayMonth + 1, 0).getDate();
+            
+            // 2. Set the Title (e.g. "May 2026")
+            const monthDateObj = new Date(displayYear, displayMonth, 1);
+            monthLabelEl.innerText = monthDateObj.toLocaleDateString('default', { month: 'long', year: 'numeric' });
+
+            const todayStr = getRealTodayString();
+
+            // 3. Generate a card for exactly 28, 29, 30, or 31 days
+            for (let day = 1; day <= daysInMonth; day++) {
+                const currentDate = new Date(displayYear, displayMonth, day);
+                const dateStr = getStorageDateString(displayYear, displayMonth, day);
+                const isToday = dateStr === todayStr;
+                
+                // Get saved data or default to false
+                const dayData = mealData[dateStr] || { breakfast: false, lunch: false, dinner: false };
+                
+                // Format the weekday (e.g., "Monday")
+                const weekdayStr = currentDate.toLocaleDateString('default', { weekday: 'long' });
+
+                const card = document.createElement('div');
+                card.className = `day-card ${isToday ? 'today' : ''}`;
+                card.id = `day-${dateStr}`;
+
+                card.innerHTML = `
+                    ${isToday ? '<div class="today-badge">TODAY</div>' : ''}
+                    <div class="date-header">
+                        <span>${weekdayStr}</span>
+                        <span class="date-number">${day}</span>
+                    </div>
+                    <div class="meals-container">
+                        <label class="meal-option">
+                            <input type="checkbox" id="chk-${dateStr}-breakfast"
+                                   onchange="updateMeal('${dateStr}', 'breakfast', this.checked)" 
+                                   ${dayData.breakfast ? 'checked' : ''}> 🥞 Breakfast
+                        </label>
+                        <label class="meal-option">
+                            <input type="checkbox" id="chk-${dateStr}-lunch"
+                                   onchange="updateMeal('${dateStr}', 'lunch', this.checked)" 
+                                   ${dayData.lunch ? 'checked' : ''}> 🍲 Lunch
+                        </label>
+                        <label class="meal-option">
+                            <input type="checkbox" id="chk-${dateStr}-dinner"
+                                   onchange="updateMeal('${dateStr}', 'dinner', this.checked)" 
+                                   ${dayData.dinner ? 'checked' : ''}> 🍽️ Dinner
+                        </label>
+                    </div>
+                `;
+                mealListEl.appendChild(card);
+            }
+        }
+
+        // Change the displayed month
+        function changeMonth(offset) {
+            displayMonth += offset;
+            
+            // Handle year wrapping (e.g., Dec -> Jan)
+            if (displayMonth > 11) {
+                displayMonth = 0;
+                displayYear++;
+            } else if (displayMonth < 0) {
+                displayMonth = 11;
+                displayYear--;
+            }
+            
+            renderCalendar();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        // Return to the current real-world month and scroll to today
+        function jumpToToday() {
+            displayYear = realToday.getFullYear();
+            displayMonth = realToday.getMonth();
+            renderCalendar();
+            
+            setTimeout(() => {
+                const todayEl = document.getElementById(`day-${getRealTodayString()}`);
+                if (todayEl) {
+                    todayEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }, 100);
+        }
+
+        // ==========================================
+        // 2. REAL-TIME DATABASE LISTENER
+        // ==========================================
+        db.collection("trackers").doc(DOCUMENT_ID).onSnapshot((doc) => {
+            if (doc.exists) {
+                mealData = doc.data();
+            }
+
+            if (!isRendered) {
+                // First time load
+                loadingEl.style.display = 'none';
+                appContentEl.style.display = 'block';
+                jumpToToday(); // Will render and scroll
+                isRendered = true;
+            } else {
+                // If already loaded, silently update checkboxes on screen
+                for (const [date, meals] of Object.entries(mealData)) {
+                    ['breakfast', 'lunch', 'dinner'].forEach(type => {
+                        const checkbox = document.getElementById(`chk-${date}-${type}`);
+                        if (checkbox) checkbox.checked = meals[type] === true;
+                    });
+                }
+            }
+        });
+
+    </script>
+</body>
+</html>
