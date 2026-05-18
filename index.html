@@ -185,7 +185,7 @@
         /* Responsive Grid for Days */
         .meal-list { 
             display: grid; 
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
             gap: 15px; 
         }
 
@@ -231,6 +231,31 @@
 
         /* Hide elements before load */
         #app-content { display: none; }
+
+        @media (max-width: 600px) {
+            body {
+                padding: 10px;
+            }
+            .calendar-nav {
+                padding: 10px;
+            }
+            .calendar-nav button {
+                padding: 8px 12px;
+                font-size: 1rem;
+            }
+            .month-title {
+                font-size: 1.2rem;
+            }
+            .meal-list {
+                grid-template-columns: 1fr;
+            }
+            h1 {
+                font-size: 1.6rem;
+            }
+            .sidebar-card {
+                padding: 15px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -274,15 +299,15 @@
                 <h3>💰 Cost Calculator</h3>
                 <div class="calc-input-group">
                     <label for="breakfast-cost">Cost per Breakfast (₹):</label>
-                    <input type="number" id="breakfast-cost" placeholder="e.g. 50" oninput="calculateCost()" min="0" step="1">
+                    <input type="number" id="breakfast-cost" placeholder="e.g. 50" oninput="calculateCost()" onchange="saveCosts()" min="0" step="1">
                 </div>
                 <div class="calc-input-group">
                     <label for="lunch-cost">Cost per Lunch (₹):</label>
-                    <input type="number" id="lunch-cost" placeholder="e.g. 100" oninput="calculateCost()" min="0" step="1">
+                    <input type="number" id="lunch-cost" placeholder="e.g. 100" oninput="calculateCost()" onchange="saveCosts()" min="0" step="1">
                 </div>
                 <div class="calc-input-group">
                     <label for="dinner-cost">Cost per Dinner (₹):</label>
-                    <input type="number" id="dinner-cost" placeholder="e.g. 100" oninput="calculateCost()" min="0" step="1">
+                    <input type="number" id="dinner-cost" placeholder="e.g. 100" oninput="calculateCost()" onchange="saveCosts()" min="0" step="1">
                 </div>
                 <div class="calc-result" style="margin-top: 10px;">
                     <span>Total Cost:</span>
@@ -311,9 +336,11 @@
         const db = firebase.firestore();
         
         const DOCUMENT_ID = "my_secret_meal_data_9876"; 
+        const COST_DOCUMENT_ID = "my_secret_meal_costs_9876";
         
         // App State
         let mealData = {};
+        let costData = {};
         let isRendered = false;
         
         // Time & Calendar Variables
@@ -454,6 +481,37 @@
             const monthDateObj = new Date(displayYear, displayMonth, 1);
             document.getElementById('summary-month-name').innerText = monthDateObj.toLocaleDateString('default', { month: 'long', year: 'numeric' });
 
+            renderCosts();
+        }
+
+        // Save the costs for the currently displayed month
+        function saveCosts() {
+            const monthKey = `${displayYear}-${String(displayMonth + 1).padStart(2, '0')}`;
+            const bCost = parseFloat(document.getElementById('breakfast-cost').value) || 0;
+            const lCost = parseFloat(document.getElementById('lunch-cost').value) || 0;
+            const dCost = parseFloat(document.getElementById('dinner-cost').value) || 0;
+
+            if (!costData[monthKey]) {
+                costData[monthKey] = {};
+            }
+            costData[monthKey] = { breakfast: bCost, lunch: lCost, dinner: dCost };
+
+            db.collection("trackers").doc(COST_DOCUMENT_ID).set({
+                [monthKey]: costData[monthKey]
+            }, { merge: true }).catch(error => console.error("Error saving costs: ", error));
+
+            calculateCost();
+        }
+
+        // Render the saved costs for the currently displayed month
+        function renderCosts() {
+            const monthKey = `${displayYear}-${String(displayMonth + 1).padStart(2, '0')}`;
+            const data = costData[monthKey] || { breakfast: '', lunch: '', dinner: '' };
+            
+            document.getElementById('breakfast-cost').value = data.breakfast || '';
+            document.getElementById('lunch-cost').value = data.lunch || '';
+            document.getElementById('dinner-cost').value = data.dinner || '';
+            
             calculateCost();
         }
 
@@ -510,6 +568,15 @@
                     });
                 }
                 calculateSummary();
+            }
+        });
+
+        db.collection("trackers").doc(COST_DOCUMENT_ID).onSnapshot((doc) => {
+            if (doc.exists) {
+                costData = doc.data();
+                if (isRendered) {
+                    renderCosts();
+                }
             }
         });
 
