@@ -197,11 +197,13 @@
             overflow: hidden;
         }
 
-        .chart-segment { width: 100%; transition: height 0.25s ease; }
+        .chart-segment { width: 100%; cursor: help; transition: height 0.25s ease, filter 0.15s ease; }
+        .chart-segment:hover, .chart-segment:focus { filter: brightness(1.2); outline: none; }
         .chart-segment.breakfast { background: #F4B942; }
         .chart-segment.lunch { background: #4C9AFF; }
         .chart-segment.dinner { background: #9B6BFF; }
         .chart-segment.delivery { background: #E85D75; }
+        .chart-empty-segment { width: 100%; background: var(--border-color); }
 
         .chart-legend {
             display: flex;
@@ -222,6 +224,24 @@
         .chart-label { font-size: 0.8rem; color: var(--text-main); text-align: center; white-space: nowrap; }
 
         .chart-empty { color: var(--text-muted); text-align: center; padding: 60px 0; }
+
+        .chart-tooltip {
+            position: fixed;
+            z-index: 10;
+            max-width: 210px;
+            padding: 8px 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background: #0a0a0a;
+            color: var(--text-main);
+            font-size: 0.85rem;
+            pointer-events: none;
+            opacity: 0;
+            transform: translateY(4px);
+            transition: opacity 0.12s ease, transform 0.12s ease;
+        }
+
+        .chart-tooltip.visible { opacity: 1; transform: translateY(0); }
         
         header { text-align: center; margin-bottom: 20px; }
         h1 { color: var(--primary-color); margin-bottom: 5px; }
@@ -461,6 +481,7 @@
                 <span class="legend-item"><span class="legend-swatch dinner"></span>Dinner</span>
                 <span class="legend-item"><span class="legend-swatch delivery"></span>Delivery</span>
             </div>
+            <div id="chart-tooltip" class="chart-tooltip" role="tooltip"></div>
         </div>
     </div>
 
@@ -818,7 +839,6 @@
 
                 const stack = document.createElement('div');
                 stack.className = 'chart-stack';
-                stack.title = `${getMonthLabel(month)}: ₹${total.toFixed(2)}`;
                 [
                     ['breakfast', breakfast],
                     ['lunch', lunch],
@@ -829,15 +849,23 @@
                     const segment = document.createElement('div');
                     segment.className = `chart-segment ${type}`;
                     segment.style.height = `${(amount / highestTotal) * 220}px`;
-                    segment.title = `${type.charAt(0).toUpperCase() + type.slice(1)}: ₹${amount.toFixed(2)}`;
+                    segment.tabIndex = 0;
+                    segment.setAttribute('aria-label', `${getMonthLabel(month)}, ${type}: ₹${amount.toFixed(2)}`);
+                    segment.addEventListener('mouseenter', event => showChartTooltip(month, type, amount, event.clientX, event.clientY));
+                    segment.addEventListener('mousemove', event => moveChartTooltip(event.clientX, event.clientY));
+                    segment.addEventListener('mouseleave', hideChartTooltip);
+                    segment.addEventListener('focus', () => {
+                        const rect = segment.getBoundingClientRect();
+                        showChartTooltip(month, type, amount, rect.left + (rect.width / 2), rect.top);
+                    });
+                    segment.addEventListener('blur', hideChartTooltip);
                     stack.appendChild(segment);
                 });
 
                 if (total === 0) {
                     const emptySegment = document.createElement('div');
-                    emptySegment.className = 'chart-segment';
+                    emptySegment.className = 'chart-empty-segment';
                     emptySegment.style.height = '3px';
-                    emptySegment.style.background = 'var(--border-color)';
                     stack.appendChild(emptySegment);
                 }
 
@@ -848,6 +876,24 @@
                 column.append(value, stack, label);
                 chartEl.appendChild(column);
             });
+        }
+
+        function showChartTooltip(month, type, amount, clientX, clientY) {
+            const tooltip = document.getElementById('chart-tooltip');
+            const label = type.charAt(0).toUpperCase() + type.slice(1);
+            tooltip.textContent = `${getMonthLabel(month)} · ${label}: ₹${amount.toFixed(2)}`;
+            moveChartTooltip(clientX, clientY);
+            tooltip.classList.add('visible');
+        }
+
+        function moveChartTooltip(clientX, clientY) {
+            const tooltip = document.getElementById('chart-tooltip');
+            tooltip.style.left = `${Math.max(8, Math.min(clientX + 12, window.innerWidth - 220))}px`;
+            tooltip.style.top = `${Math.max(8, clientY - 42)}px`;
+        }
+
+        function hideChartTooltip() {
+            document.getElementById('chart-tooltip').classList.remove('visible');
         }
 
         function showChart() {
