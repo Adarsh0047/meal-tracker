@@ -420,19 +420,19 @@
                 <h3>💰 Cost Calculator</h3>
                 <div class="calc-input-group">
                     <label for="breakfast-cost">Cost per Breakfast (₹):</label>
-                    <input type="number" id="breakfast-cost" placeholder="e.g. 50" oninput="updateCosts()" onchange="saveCosts()" min="0" step="1">
+                    <input type="number" id="breakfast-cost" placeholder="e.g. 50" oninput="updateCosts()" min="0" step="1">
                 </div>
                 <div class="calc-input-group">
                     <label for="lunch-cost">Cost per Lunch (₹):</label>
-                    <input type="number" id="lunch-cost" placeholder="e.g. 100" oninput="updateCosts()" onchange="saveCosts()" min="0" step="1">
+                    <input type="number" id="lunch-cost" placeholder="e.g. 100" oninput="updateCosts()" min="0" step="1">
                 </div>
                 <div class="calc-input-group">
                     <label for="dinner-cost">Cost per Dinner (₹):</label>
-                    <input type="number" id="dinner-cost" placeholder="e.g. 100" oninput="updateCosts()" onchange="saveCosts()" min="0" step="1">
+                    <input type="number" id="dinner-cost" placeholder="e.g. 100" oninput="updateCosts()" min="0" step="1">
                 </div>
                 <div class="calc-input-group">
                     <label for="delivery-cost">Delivery Cost for the Month (₹):</label>
-                    <input type="number" id="delivery-cost" placeholder="e.g. 500" oninput="updateCosts()" onchange="saveCosts()" min="0" step="1">
+                    <input type="number" id="delivery-cost" placeholder="e.g. 500" oninput="updateCosts()" min="0" step="1">
                 </div>
                 <div class="calc-result" style="margin-top: 10px;">
                     <span>Total Cost:</span>
@@ -484,13 +484,43 @@
         
         const DOCUMENT_ID = "my_secret_meal_data_9876"; 
         const COST_DOCUMENT_ID = "my_secret_meal_costs_9876";
+        const COST_CACHE_KEY = `meal-tracker-costs-${COST_DOCUMENT_ID}`;
         
         // App State
         let mealData = {};
         let costData = {};
+        let localCostUpdates = {};
+        const pendingCostWrites = new Set();
         let isRendered = false;
-        let costSaveTimer = null;
         let activePage = 'calendar';
+
+        // Load the latest local copy immediately. Firestore remains the source of truth,
+        // but this prevents recent price edits from disappearing during a page refresh.
+        function loadCachedCosts() {
+            try {
+                const cachedData = JSON.parse(localStorage.getItem(COST_CACHE_KEY));
+                if (cachedData && typeof cachedData === 'object' && !Array.isArray(cachedData)) {
+                    // Support the cache format used before local update tracking was added.
+                    costData = cachedData.costs || cachedData;
+                    localCostUpdates = cachedData.localUpdates || {};
+                }
+            } catch (error) {
+                console.warn('Unable to load cached costs:', error);
+            }
+        }
+
+        function cacheCosts() {
+            try {
+                localStorage.setItem(COST_CACHE_KEY, JSON.stringify({
+                    costs: costData,
+                    localUpdates: localCostUpdates
+                }));
+            } catch (error) {
+                console.warn('Unable to cache costs:', error);
+            }
+        }
+
+        loadCachedCosts();
         
         // Time & Calendar Variables
         const realToday = new Date(); 
@@ -683,32 +713,31 @@
             return getMonthlyCostBreakdown(month).total;
         }
 
-        // Keep the selected month's prices in memory immediately, then save them to Firestore.
+        // Save each price change immediately, so a refresh cannot occur before the write starts.
         function updateCosts() {
             const monthKey = getDisplayedMonthKey();
             costData[monthKey] = getCostsFromInputs();
+            localCostUpdates[monthKey] = true;
+            cacheCosts();
             calculateCost();
-
-            clearTimeout(costSaveTimer);
-            costSaveTimer = setTimeout(() => persistCosts(monthKey), 400);
-        }
-
-        // Save immediately when the field loses focus, so navigating away cannot lose a recent edit.
-        function saveCosts() {
-            const monthKey = getDisplayedMonthKey();
-            costData[monthKey] = getCostsFromInputs();
-            clearTimeout(costSaveTimer);
             persistCosts(monthKey);
-            calculateCost();
         }
 
         function persistCosts(monthKey) {
             const costs = costData[monthKey];
-            if (!costs) return;
+            if (!costs || pendingCostWrites.has(monthKey)) return;
 
+            pendingCostWrites.add(monthKey);
             db.collection("trackers").doc(COST_DOCUMENT_ID).set({
                 [monthKey]: costs
-            }, { merge: true }).catch(error => console.error("Error saving costs: ", error));
+            }, { merge: true }).then(() => {
+                pendingCostWrites.delete(monthKey);
+                delete localCostUpdates[monthKey];
+                cacheCosts();
+            }).catch(error => {
+                pendingCostWrites.delete(monthKey);
+                console.error("Error saving costs: ", error);
+            });
         }
 
         // Render the saved costs for the currently displayed month
@@ -895,11 +924,21 @@
         });
 
         db.collection("trackers").doc(COST_DOCUMENT_ID).onSnapshot((doc) => {
-            if (doc.exists) {
-                costData = doc.data();
-                if (isRendered) {
-                    renderCosts();
-                }
+            const remoteCosts = doc.exists ? doc.data() : {};
+            const unsyncedCosts = {};
+            Object.keys(localCostUpdates).forEach(monthKey => {
+                unsyncedCosts[monthKey] = costData[monthKey];
+            });
+
+            // Keep local edits until their Firestore write has completed, then use the
+            // Firestore snapshot as the shared source of truth.
+            costData = { ...remoteCosts, ...unsyncedCosts };
+            cacheCosts();
+
+            Object.keys(localCostUpdates).forEach(monthKey => persistCosts(monthKey));
+
+            if (isRendered) {
+                renderCosts();
             }
         });
 
