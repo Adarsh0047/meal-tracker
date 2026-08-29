@@ -188,14 +188,36 @@
 
         .chart-value { color: var(--text-muted); font-size: 0.85rem; white-space: nowrap; }
 
-        .chart-bar {
+        .chart-stack {
             width: 100%;
             max-width: 70px;
-            min-height: 3px;
-            background: var(--primary-color);
+            display: flex;
+            flex-direction: column-reverse;
             border-radius: 8px 8px 0 0;
-            transition: height 0.25s ease;
+            overflow: hidden;
         }
+
+        .chart-segment { width: 100%; transition: height 0.25s ease; }
+        .chart-segment.breakfast { background: #F4B942; }
+        .chart-segment.lunch { background: #4C9AFF; }
+        .chart-segment.dinner { background: #9B6BFF; }
+        .chart-segment.delivery { background: #E85D75; }
+
+        .chart-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 14px;
+            margin: 16px 0 0;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        .legend-item { display: flex; align-items: center; gap: 6px; }
+        .legend-swatch { width: 12px; height: 12px; border-radius: 3px; }
+        .legend-swatch.breakfast { background: #F4B942; }
+        .legend-swatch.lunch { background: #4C9AFF; }
+        .legend-swatch.dinner { background: #9B6BFF; }
+        .legend-swatch.delivery { background: #E85D75; }
 
         .chart-label { font-size: 0.8rem; color: var(--text-main); text-align: center; white-space: nowrap; }
 
@@ -408,6 +430,10 @@
                     <label for="dinner-cost">Cost per Dinner (₹):</label>
                     <input type="number" id="dinner-cost" placeholder="e.g. 100" oninput="updateCosts()" onchange="saveCosts()" min="0" step="1">
                 </div>
+                <div class="calc-input-group">
+                    <label for="delivery-cost">Delivery Cost for the Month (₹):</label>
+                    <input type="number" id="delivery-cost" placeholder="e.g. 500" oninput="updateCosts()" onchange="saveCosts()" min="0" step="1">
+                </div>
                 <div class="calc-result" style="margin-top: 10px;">
                     <span>Total Cost:</span>
                     <strong id="calc-total-cost">₹0.00</strong>
@@ -427,8 +453,14 @@
         <div class="chart-card">
             <button class="view-button" onclick="showCalendar()">&larr; Back to Calendar</button>
             <h2 style="margin-top: 20px;">Monthly Cost Comparison</h2>
-            <p class="subtitle">Total meal costs calculated from the saved prices for each month.</p>
+            <p class="subtitle">Total meal and delivery costs calculated from the saved prices for each month.</p>
             <div id="monthly-cost-chart" class="chart-bars"></div>
+            <div class="chart-legend" aria-label="Chart legend">
+                <span class="legend-item"><span class="legend-swatch breakfast"></span>Breakfast</span>
+                <span class="legend-item"><span class="legend-swatch lunch"></span>Lunch</span>
+                <span class="legend-item"><span class="legend-swatch dinner"></span>Dinner</span>
+                <span class="legend-item"><span class="legend-swatch delivery"></span>Delivery</span>
+            </div>
         </div>
     </div>
 
@@ -609,7 +641,8 @@
             return {
                 breakfast: parseFloat(document.getElementById('breakfast-cost').value) || 0,
                 lunch: parseFloat(document.getElementById('lunch-cost').value) || 0,
-                dinner: parseFloat(document.getElementById('dinner-cost').value) || 0
+                dinner: parseFloat(document.getElementById('dinner-cost').value) || 0,
+                delivery: parseFloat(document.getElementById('delivery-cost').value) || 0
             };
         }
 
@@ -626,7 +659,7 @@
                 .toLocaleDateString('default', { month: short ? 'short' : 'long', year: 'numeric' });
         }
 
-        function getMonthlyCost(month) {
+        function getMonthlyCostBreakdown(month) {
             let breakfasts = 0, lunches = 0, dinners = 0;
             Object.keys(mealData).forEach(date => {
                 if (!date.startsWith(month)) return;
@@ -635,10 +668,19 @@
                 if (mealData[date].dinner) dinners++;
             });
 
-            const costs = costData[month] || { breakfast: 0, lunch: 0, dinner: 0 };
-            return (breakfasts * (costs.breakfast || 0)) +
-                (lunches * (costs.lunch || 0)) +
-                (dinners * (costs.dinner || 0));
+            const costs = costData[month] || { breakfast: 0, lunch: 0, dinner: 0, delivery: 0 };
+            const breakdown = {
+                breakfast: breakfasts * (costs.breakfast || 0),
+                lunch: lunches * (costs.lunch || 0),
+                dinner: dinners * (costs.dinner || 0),
+                delivery: costs.delivery || 0
+            };
+            breakdown.total = breakdown.breakfast + breakdown.lunch + breakdown.dinner + breakdown.delivery;
+            return breakdown;
+        }
+
+        function getMonthlyCost(month) {
+            return getMonthlyCostBreakdown(month).total;
         }
 
         // Keep the selected month's prices in memory immediately, then save them to Firestore.
@@ -672,11 +714,12 @@
         // Render the saved costs for the currently displayed month
         function renderCosts() {
             const monthKey = getDisplayedMonthKey();
-            const data = costData[monthKey] || { breakfast: '', lunch: '', dinner: '' };
+            const data = costData[monthKey] || { breakfast: '', lunch: '', dinner: '', delivery: '' };
             
             document.getElementById('breakfast-cost').value = data.breakfast ?? '';
             document.getElementById('lunch-cost').value = data.lunch ?? '';
             document.getElementById('dinner-cost').value = data.dinner ?? '';
+            document.getElementById('delivery-cost').value = data.delivery ?? '';
             
             calculateCost();
             renderHistory();
@@ -733,10 +776,10 @@
                 return;
             }
 
-            const totals = months.map(month => ({ month, total: getMonthlyCost(month) }));
+            const totals = months.map(month => ({ month, ...getMonthlyCostBreakdown(month) }));
             const highestTotal = Math.max(...totals.map(item => item.total), 1);
 
-            totals.forEach(({ month, total }) => {
+            totals.forEach(({ month, total, breakfast, lunch, dinner, delivery }) => {
                 const column = document.createElement('div');
                 column.className = 'chart-column';
 
@@ -744,16 +787,36 @@
                 value.className = 'chart-value';
                 value.textContent = `₹${total.toFixed(2)}`;
 
-                const bar = document.createElement('div');
-                bar.className = 'chart-bar';
-                bar.style.height = `${Math.max((total / highestTotal) * 220, 3)}px`;
-                bar.title = `${getMonthLabel(month)}: ₹${total.toFixed(2)}`;
+                const stack = document.createElement('div');
+                stack.className = 'chart-stack';
+                stack.title = `${getMonthLabel(month)}: ₹${total.toFixed(2)}`;
+                [
+                    ['breakfast', breakfast],
+                    ['lunch', lunch],
+                    ['dinner', dinner],
+                    ['delivery', delivery]
+                ].forEach(([type, amount]) => {
+                    if (amount <= 0) return;
+                    const segment = document.createElement('div');
+                    segment.className = `chart-segment ${type}`;
+                    segment.style.height = `${(amount / highestTotal) * 220}px`;
+                    segment.title = `${type.charAt(0).toUpperCase() + type.slice(1)}: ₹${amount.toFixed(2)}`;
+                    stack.appendChild(segment);
+                });
+
+                if (total === 0) {
+                    const emptySegment = document.createElement('div');
+                    emptySegment.className = 'chart-segment';
+                    emptySegment.style.height = '3px';
+                    emptySegment.style.background = 'var(--border-color)';
+                    stack.appendChild(emptySegment);
+                }
 
                 const label = document.createElement('div');
                 label.className = 'chart-label';
                 label.textContent = getMonthLabel(month, true);
 
-                column.append(value, bar, label);
+                column.append(value, stack, label);
                 chartEl.appendChild(column);
             });
         }
@@ -776,7 +839,7 @@
         // Calculate the cost based on number of meals
         function calculateCost() {
             const bCount = parseInt(document.getElementById('sum-breakfast').innerText) || 0;
-            const monthCosts = costData[getDisplayedMonthKey()] || { breakfast: 0, lunch: 0, dinner: 0 };
+            const monthCosts = costData[getDisplayedMonthKey()] || { breakfast: 0, lunch: 0, dinner: 0, delivery: 0 };
             const bCost = monthCosts.breakfast || 0;
             
             const lCount = parseInt(document.getElementById('sum-lunch').innerText) || 0;
@@ -785,7 +848,8 @@
             const dCount = parseInt(document.getElementById('sum-dinner').innerText) || 0;
             const dCost = monthCosts.dinner || 0;
             
-            const total = (bCount * bCost) + (lCount * lCost) + (dCount * dCost);
+            const deliveryCost = monthCosts.delivery || 0;
+            const total = (bCount * bCost) + (lCount * lCost) + (dCount * dCost) + deliveryCost;
             document.getElementById('calc-total-cost').innerText = '₹' + total.toFixed(2);
         }
 
