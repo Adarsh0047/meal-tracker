@@ -29,6 +29,27 @@ This is a static site with no build step or package installation required.
 
 The Firebase project configuration is currently included in `index.html`.
 
+## Native Android app
+
+A Kotlin and Jetpack Compose Android client lives in [`android/`](android/). It uses the same
+Firestore project, collection, documents, and field formats as the website, so changes sync in
+real time between both clients. It supports the monthly calendar, meal counts, monthly prices,
+cost totals, history, and Firestore's offline cache.
+
+Open the `android` directory in Android Studio, let Gradle sync, then run the `app` configuration
+on an Android 6.0 (API 23) or newer emulator/device.
+
+Release signing credentials are intentionally not stored in this repository. To produce a signed
+release, provide `MEAL_TRACKER_KEYSTORE_PATH`, `MEAL_TRACKER_KEYSTORE_PASSWORD`,
+`MEAL_TRACKER_KEY_ALIAS`, and `MEAL_TRACKER_KEY_PASSWORD` as environment variables or Gradle
+properties. Without them, Gradle still produces an unsigned release APK.
+
+The initial app initializes Firebase from the existing public web configuration. For a production
+release, register Android package `io.github.adarsh0047.mealtracker` in the existing Firebase
+project, download `google-services.json` into `android/app/`, and migrate initialization to the
+Google Services Gradle plugin. In either setup, Firestore Security Rules—not API keys or document
+IDs—must enforce access control.
+
 ## Data model
 
 The app stores data in the Firestore `trackers` collection using two documents:
